@@ -267,11 +267,8 @@ int main (void)
 
 				fprintf(stderr, "exec failed\n");
 			}
-
-
 			return 1;
 		}
-
 	}
 	return 0;
 }
