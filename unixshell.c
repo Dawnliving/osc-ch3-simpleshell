@@ -93,8 +93,6 @@ int main (void)
 			{
 				output_redirect = 1;
 				output_file = strtok(NULL, " ");
-				// args[argc] = NULL;
-				// argc++;
 				break;
 			}
 
@@ -102,18 +100,12 @@ int main (void)
 			{
 				input_redirect = 1;
 				input_file = strtok(NULL, " ");
-				// args[argc] = NULL;
-				// argc++;
-				// printf("argc is %d", argc);
 				break;
 			}
 
 			else if (strcmp(token, "|") == 0)
 			{
 				ispipe = 1;
-				// printf("pipe is activated!, %d\n", ispipe);
-				// args[argc] = NULL;
-				// argc++;
 				token = strtok(NULL, " ");
 				while (token != NULL && sub_argc < MAX_LINE / 2 - 1)
 				{
@@ -169,7 +161,6 @@ int main (void)
 		{
 			if (isconcurrent)
 			{
-				//printf("parent process and child process run concurrently!\n");
 				printf("[%d]\n", pid);
 			}
 			else
