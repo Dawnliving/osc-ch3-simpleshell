@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -8,8 +7,10 @@
 
 #include <fcntl.h>
 
-# define MAX_LINE 80 /* The maximum length command */
-# define MAX_HISTORY 100
+#define MAX_LINE 80 /* The maximum length command */
+#define MAX_HISTORY 100
+#define READ_END 0
+#define WRITE_END 1
 
 int main (void)
 {
@@ -22,11 +23,11 @@ int main (void)
 
 	while(should_run)
 	{
-	        /* command line arguments */
-	       	char *args[MAX_LINE / 2 + 1] = {NULL};
-	        int argc = 0;
-	        /* user input */
-	        char input[MAX_LINE + 1];
+		/* command line arguments */
+		char *args[MAX_LINE / 2 + 1] = {NULL};
+		int argc = 0;
+		/* user input */
+		char input[MAX_LINE + 1];
 
 
 		printf("dawn_shell > ");
@@ -43,7 +44,7 @@ int main (void)
 		int status;
 
 		/* collect all done child processes  */
-		while (done_pid = waitpid(-1, &status, WNOHANG) > 0)
+		while ((done_pid = waitpid(-1, &status, WNOHANG)) > 0)
 		{
 			printf("[%d] Done \n", done_pid);
 		}
@@ -74,8 +75,57 @@ int main (void)
 
 		/* divide input into several tokens by " "(space)  */
 		char *token = strtok(input, " ");
+
+		int input_redirect = 0;
+		int output_redirect = 0;
+
+		int ispipe = 0;
+
+		char *sub_args[MAX_LINE / 2 - 1] = {NULL};
+		int sub_argc = 0;
+
+		char *input_file = NULL;
+		char *output_file = NULL;
+
 		while (token != NULL && argc < MAX_LINE / 2)
 		{
+			if (strcmp(token, ">") == 0)
+			{
+				output_redirect = 1;
+				output_file = strtok(NULL, " ");
+				// args[argc] = NULL;
+				// argc++;
+				break;
+			}
+
+			else if (strcmp(token, "<") == 0)
+			{
+				input_redirect = 1;
+				input_file = strtok(NULL, " ");
+				// args[argc] = NULL;
+				// argc++;
+				// printf("argc is %d", argc);
+				break;
+			}
+
+			else if (strcmp(token, "|") == 0)
+			{
+				ispipe = 1;
+				// printf("pipe is activated!, %d\n", ispipe);
+				// args[argc] = NULL;
+				// argc++;
+				token = strtok(NULL, " ");
+				while (token != NULL && sub_argc < MAX_LINE / 2 - 1)
+				{
+					sub_args[sub_argc] = token;
+					sub_argc++;
+					token = strtok(NULL, " ");
+				}
+				sub_args[sub_argc] = NULL;
+				break;
+			}
+
+
 			args[argc] = token;
 			argc++;
 			token = strtok(NULL, " ");
@@ -99,44 +149,12 @@ int main (void)
 
 		int isconcurrent = 0;
 
-                if (argc > 0 && strcmp(args[argc - 1], "&") == 0)
-                {
+        if (argc > 0 && strcmp(args[argc - 1], "&") == 0)
+        {
 			isconcurrent = 1;
-                	args[argc - 1] = NULL;
-                        argc--;
-                }
-
-
-		/* Redirecting Input and Output */
-		int input_redirect = 0;
-		int output_redirect = 0;
-
-		char *input_file = NULL;
-		char *output_file = NULL;
-		for (int i = 0; i < argc; i++)
-		{
-			if (strcmp(args[i], ">") == 0)
-			{
-				output_redirect = 1;
-				output_file = args[i + 1];
-
-				args[i] = NULL;
-				argc = i;
-
-				break;
-			}
-
-			else if (strcmp(args[i], "<") == 0)
-			{
-				input_redirect = 1;
-				input_file = args[i + 1];
-
-				args[i] = NULL;
-				argc = i;
-
-				break;
-			}
-		}
+            args[argc - 1] = NULL;
+            argc--;
+        }
 
 		/* create child process */
 		pid_t pid;
@@ -159,7 +177,7 @@ int main (void)
 				wait(NULL);
 			}
 		}
-		else
+		else /* child process */
 		{
 			/* output redirect exec */
 			if (output_redirect)
@@ -173,28 +191,93 @@ int main (void)
 
 				dup2(fd, STDOUT_FILENO);
 				close(fd);
+
+				/*  default exec */
+				execvp(args[0], args);
+
+				fprintf(stderr, "exec failed\n");
 			}
 
 
-                        /* input redirect exec */
-                        if (input_redirect)
-                        {
-                                int fd = open(input_file, O_RDONLY);
-                                if (fd < 0)
-                                {
-                                        fprintf(stderr, "input redirect occur errors.\n");
-                                        return 1;
-                                }
+            /* input redirect exec */
+            if (input_redirect)
+            {
+                int fd = open(input_file, O_RDONLY);
+                if (fd < 0)
+                {
+                        fprintf(stderr, "input redirect occur errors.\n");
+                        return 1;
+                }
 
-                                dup2(fd, STDIN_FILENO);
-                                close(fd);
-                        }
+                dup2(fd, STDIN_FILENO);
+                close(fd);
+            	/*  default exec */
+            	execvp(args[0], args);
+
+            	fprintf(stderr, "exec failed\n");
+            }
+
+			/* pipe exec */
+			if (ispipe)
+			{
+				pid_t sub_pid;
+				int fd[2];
+
+				/* create the pipe */
+				if (pipe(fd) == -1) {
+					fprintf(stderr,"Pipe failed");
+					return 1;
+				}
+
+				sub_pid = fork();
+				if (sub_pid < 0)
+				{ /* error occour */
+					fprintf(stderr, "Fork failed");
+					return 1;
+				}
+				else if (sub_pid > 0)
+				{ /* parent process */
+
+					/* close the unused end of the pipe */
+					close(fd[READ_END]);
+
+					/* duplicate the standard output to pipe */
+					dup2(fd[WRITE_END], STDOUT_FILENO);
+
+					/* close the write end of the pipe */
+					close(fd[WRITE_END]);
+
+					execvp(args[0], args);
+
+					fprintf(stderr, "exec failed\n");
+					return 1;
+
+				}
+				else
+				{ /* child process */
+					/* close the unused end of the pipe */
+					close(fd[WRITE_END]);
+
+					/* read from the pipe */
+					dup2(fd[READ_END], STDIN_FILENO);
+
+					/* close the write end of the pipe */
+					close(fd[READ_END]);
+
+					execvp(sub_args[0], sub_args);
+					fprintf(stderr, "exec failed\n");
+					return 1;
+				}
+			}
+			else
+			{
+				/*  default exec */
+				execvp(args[0], args);
+
+				fprintf(stderr, "exec failed\n");
+			}
 
 
-			/*  default exec */
-			execvp(args[0], args);
-
-			fprintf(stderr, "exec failed\n");
 			return 1;
 		}
 
